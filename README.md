@@ -58,50 +58,58 @@ PublicKey: 解析令牌的过程中，我们会使用到应用的 PublicKey。�
 ```java
 private String checkAndGetUsername(String id_token, String target_url, Model model, HttpServletRequest request, String publickey) throws Exception {
 
-    //1. 初始化
-    JsonWebSignature jws = new JsonWebSignature();
-    jws.setCompactSerialization(id_token);
-    jws.setKey(JsonWebKey.Factory.newJwk(publickey).getKey());
-    //2. 校验id_token是否合法
-    final boolean verifySignature = jws.verifySignature();
-    if (!verifySignature) {
-        LOG.warn("id_token verifySignature failed");
-        //校验失败，报错，返回
-        model.addAttribute("error", "Retrieve Username error: id_token verifySignature failed");
-        return "error";
-    }
-    //3. 获取jwt中的payload信息，json格式，这里可以自由转换为需要的实体类
-    final String payload = jws.getPayload();
-
-    //4. 校验id_token是否过期
-    JwtClaims claims = JwtClaims.parse(payload);
-    NumericDate expirationTime = claims.getExpirationTime();
-    if (expirationTime != null && expirationTime.isBefore(NumericDate.now())) {
-        LOG.warn("id_token expired");
-        //校验失败，报错，返回
-        model.addAttribute("error", "Retrieve Username error: id_token expired");
-        return "error";
-    }
-    String username = claims.getSubject();
-    //这里可以获取其它信息，通过claims.getClaimsMap()或者直接解析payload
-
-    //4.获取到用户信息，检测用户名是否存在自己的业务系统中，isExistedUsername方法为示例实现
-    if (userService.isExistedUsername(username)) {
-        //5.如果存在,登录成功，返回登录成功后的界面
-        User sysUser = userService.updateLoginTimes(username);
-        HttpSession session = request.getSession();
-        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, saveSecurity(sysUser));
-
-        //6.如果注册应用时添加了target_url，那么返回此自定义url页面
-        if (StringUtils.isNotEmpty(target_url)) {
-            return "redirect:" + target_url;
+        //1. 初始化
+        JsonWebSignature jws = new JsonWebSignature();
+        jws.setCompactSerialization(id_token);
+        jws.setKey(JsonWebKey.Factory.newJwk(publickey).getKey());
+        //2. 校验id_token是否合法
+        final boolean verifySignature = jws.verifySignature();
+        if (!verifySignature) {
+            LOG.warn("id_token verifySignature failed");
+            //校验失败，报错，返回
+            model.addAttribute("error", "Retrieve Username error: id_token verifySignature failed");
+            return "error";
         }
-        //7.否则返回系统默认操作页面
-        return "redirect:../../index";
-    } else {
-        //8.如果不存在,返回登录失败页面,提示用户不存在
-        model.addAttribute("error", "username { " + username + " } not exist");
-        return "error";
-    }
+        //3. 获取jwt中的payload信息，json格式，这里可以自由转换为需要的实体类
+        final String payload = jws.getPayload();
+
+        //4. 校验id_token是否过期
+        JwtClaims claims = JwtClaims.parse(payload);
+        NumericDate expirationTime = claims.getExpirationTime();
+        if (expirationTime != null && expirationTime.isBefore(NumericDate.now())) {
+            LOG.warn("id_token expired");
+            //校验失败，报错，返回
+            model.addAttribute("error", "Retrieve Username error: id_token expired");
+            return "error";
+        }
+        //5. 注意校验id_token是否已经登陆过，防重放攻击
+        //业务系统自己实现，需要校验有效期内，是否有相同的id_token已经登录
+        final String jti = claims.getJwtId();//获取token唯一标识
+        //从自身缓存系统判断jti是否已经登录过
+        //if(exit(jti)){
+        //    model.addAttribute("error", "id_token verifySignature failed");
+        //    return error;
+        //}
+        //save(jti);
+
+        //6.获取到用户信息，检测用户名是否存在自己的业务系统中，isExistedUsername方法为示例实现
+        String username = claims.getSubject();
+        if (userService.isExistedUsername(username)) {
+            //7.如果存在,登录成功，返回登录成功后的界面
+            User sysUser = userService.updateLoginTimes(username);
+            HttpSession session = request.getSession();
+            session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, saveSecurity(sysUser));
+
+            //8.如果注册应用时添加了target_url，那么返回此自定义url页面
+            if (StringUtils.isNotEmpty(target_url)) {
+                return "redirect:" + target_url;
+            }
+            //9.否则返回系统默认操作页面
+            return "redirect:../../index";
+        } else {
+            //10.如果不存在,返回登录失败页面,提示用户不存在
+            model.addAttribute("error", "username { " + username + " } not exist");
+            return "error";
+        }
 }
 ```
